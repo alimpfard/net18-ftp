@@ -1,0 +1,35 @@
+import Library/Foreign/C/Socket: 'Socket'.
+
+var control-port is Program argument: 2, or: '3773'.
+
+var sock is Socket
+  createINetStreamSocketTo: '127.0.0.1'
+  service: control-port toString
+  withProto: Socket IPv4
+  andFlags: 0.
+  
+sock write: 'ls\n'. # list
+Clock wait: 1 sec.
+
+sock write: 'cd autohell\n'. # goto autohell
+Clock wait: 1 sec.
+
+# get test_file_in into current dir's test_file_out
+sock write: 'port 3000\n'. # set send-port to 3000
+Clock wait: 500 msec.
+
+var recv is Socket
+  createINetServerSocketBoundToAddress: '127.0.0.1'
+  andPort: '3000'
+  withProto4: Socket TCP
+  andProto3: Socket IPv4
+  andFlags: 0.
+
+sock write: 'get test_file_in\n'.
+Clock wait: 500 msec.
+
+[fd, _] is recv accept.
+
+File new: 'test_file_out', write: fd read, close.
+sock write: 'bye\n'.
+sock destroy.

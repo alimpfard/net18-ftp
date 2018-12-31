@@ -1,0 +1,127 @@
+import Library/Foreign/C/Socket: 'Socket'.
+import Library/Data/SwitchCase.
+import Library/System/FilePath/Posix: \*.
+#:language XFrozen
+
+var control-port is 3773.
+var directory is Shell pwd trim.
+var port is 1033.
+var rport is 4000.
+
+var send-file is {:fname:host
+  var file is File new: directory `</>` fname.
+  file exists ifFalse: {
+    ^ \DoesntExist.
+  }.
+  var sock is Socket
+    createINetStreamSocketTo: host
+    service: port toString
+    withProto: Socket IPv4
+    andFlags: 0.
+  sock write: file read.
+  file close.
+  sock destroy.
+  ^ \Ok.
+}.
+
+var recv-file is {:fname:host
+  var file is File new: directory `</>` fname.
+  file exists ifTrue: {
+    ^ \Exists.
+  }.
+  var sock is Socket
+    createINetServerSocketBoundToAddress: '0.0.0.0'
+    andPort: rport toString
+    withProto4: Socket TCP
+    andProto3: Socket IPv4
+    andFlags: 0.
+  [fd, _] is sock accept.
+  file write: fd read.
+  file close.
+  sock destroy.
+  ^ \Ok.
+}.
+
+var process is {:cmd:fd:host
+  var args is cmd reSplit: ' '.
+  Pen writeln: args.
+  cmd is args shift.
+
+  var res is (frozen _ is Object
+    case: 'ls' do: {
+      Pen writeln: directory.
+      fd write: (Shell ls: directory).
+      ^True.
+    },
+    case: 'cd' do: {
+      directory is directory `</>` (args head).
+      File new: directory, exists ifFalse: {
+          directory is takeDirectory[directory].
+          ^False.
+      }
+      ^True.
+    },
+    case: 'get' do: {
+      Pen writeln: args.
+      args each_v: {:fname
+        fd write: '> $$fname : ' + send-file[fname, host] toString + '\n'.
+      }.
+      ^True.
+    },
+    case: 'port' do: {
+      ^{
+        port is args head toNumber.
+        ^True.
+      } catch: {
+        ^False.
+      }, run.
+    },
+    case: 'rport' do: {
+      ^{
+        rport is args head toNumber.
+        ^True.
+      } catch: {
+        ^False.
+      }, run.
+    },
+    case: 'put' do: {
+      args each_v: {:fname
+        fd write: '> $$fname : ' + recv-file[fname, host] toString + '\n'.
+      }.
+      ^True.
+    },
+    case: 'bye' do: {
+      fd write: '220 GOODBYE'.
+      ^Nil.
+    },
+    default: {
+      ^False.
+    }) switch: cmd.
+
+    res isNil ifTrue: {
+      ^Nil.
+    }.
+    res ifTrue: {
+      fd write: '200 OK\n'.
+    } ifFalse: {
+      fd write: '500 INVALID REQUEST $$cmd \n'.
+    }.
+}.
+
+var sf is Socket
+  createINetServerSocketBoundToAddress: '0.0.0.0'
+  andPort: control-port toString
+  withProto4: Socket TCP
+  andProto3: Socket IPv4
+  andFlags: 0.
+
+[fd, [host, port]] is sf accept.
+Pen writeln: [host, port].
+
+fd write: '200 HELLO\n'.
+{ ^True. } whileTrue: {
+  process[(fd readUntilSeen: '\n', rightTrim), fd, host] isNil break.
+}.
+
+sf shutdownWrite shutdownRead.
+sf destroy.
